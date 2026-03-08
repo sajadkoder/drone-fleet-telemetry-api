@@ -4,7 +4,10 @@ Main application entry point for the Drone Fleet Telemetry API.
 Configures FastAPI application with all routes, middleware,
 and background tasks for telemetry simulation and streaming.
 """
+import asyncio
 import logging
+import time
+import psutil
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -19,7 +22,7 @@ from backend.fleet.routes import router as fleet_router, missions_router, alerts
 from backend.auth.routes import router as auth_router
 from backend.telemetry.simulator import simulator
 from backend.telemetry.publisher import publisher
-from backend.telemetry.websocket_gateway import router as ws_router
+from backend.telemetry.websocket_gateway import router as ws_router, connection_manager
 from backend.anomaly.engine import engine
 
 # Configure logging
@@ -28,6 +31,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Track startup time
+start_time = time.time()
 
 
 @asynccontextmanager
@@ -131,6 +137,91 @@ async def health_check():
         "status": "healthy",
         "redis_connected": redis_client.is_connected,
         "simulator_running": simulator.is_running
+    }
+
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check with system metrics."""
+    uptime = time.time() - start_time
+    
+    # Get CPU and memory usage
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+    except Exception:
+        cpu_percent = 0
+        memory = None
+    
+    # Get system metrics
+    try:
+        from backend.telemetry.websocket_gateway import connection_manager
+        ws_clients = len(connection_manager.active_connections)
+    except Exception:
+        ws_clients = 0
+    
+    return {
+        "status": "healthy",
+        "uptime_seconds": round(uptime, 2),
+        "components": {
+            "redis": {
+                "connected": redis_client.is_connected,
+                "status": "up" if redis_client.is_connected else "down"
+            },
+            "simulator": {
+                "running": simulator.is_running,
+                "drones": len(simulator.drones)
+            },
+            "engine": {
+                "running": engine._running
+            },
+            "websocket": {
+                "active_connections": ws_clients
+            }
+        },
+        "system": {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory.percent if memory else 0,
+            "memory_available_mb": memory.available // (1024 * 1024) if memory else 0
+        } if memory else None
+    }
+
+
+@app.get("/metrics")
+async def system_metrics():
+    """Get system metrics for monitoring."""
+    uptime = time.time() - start_time
+    
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+    except Exception:
+        return {"error": "Failed to get system metrics"}
+    
+    # Get fleet metrics
+    summary = fleet_service.get_fleet_summary()
+    
+    try:
+        from backend.telemetry.websocket_gateway import connection_manager
+        ws_clients = len(connection_manager.active_connections)
+    except Exception:
+        ws_clients = 0
+    
+    return {
+        "timestamp": time.time(),
+        "uptime_seconds": round(uptime, 2),
+        "system": {
+            "cpu_percent": round(cpu_percent, 2),
+            "memory_total_gb": round(memory.total / (1024**3), 2),
+            "memory_used_gb": round(memory.used / (1024**3), 2),
+            "memory_percent": round(memory.percent, 2),
+            "disk_percent": round(disk.percent, 2)
+        },
+        "fleet": summary.model_dump() if summary else {},
+        "websocket": {
+            "active_connections": ws_clients
+        }
     }
 
 

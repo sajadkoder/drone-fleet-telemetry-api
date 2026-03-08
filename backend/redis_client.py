@@ -43,52 +43,66 @@ class RedisClient:
         """Check if Redis connection is active."""
         return self._redis is not None and self._is_healthy
     
-    async def connect(self) -> None:
+    async def connect(self, max_retries: int = 5, retry_delay: float = 2.0) -> None:
         """
-        Initialize Redis connection with connection pooling.
+        Initialize Redis connection with connection pooling and retry logic.
         
         Creates a connection pool with configurable max connections
-        and tests the connection immediately.
+        and tests the connection immediately. Implements exponential backoff
+        for connection retries.
+        
+        Args:
+            max_retries: Maximum number of connection attempts
+            retry_delay: Initial delay between retries (doubles each attempt)
         """
         async with self._connection_lock:
             if self._redis is not None:
                 logger.info("Redis client already initialized")
                 return
             
-            try:
-                logger.info(f"Connecting to Redis at {settings.REDIS_URL}")
-                
-                # Create connection pool
-                pool = redis.ConnectionPool.from_url(
-                    settings.REDIS_URL,
-                    max_connections=settings.REDIS_MAX_CONNECTIONS,
-                    decode_responses=True,
-                    socket_keepalive=True,
-                    socket_connect_timeout=5,
-                )
-                
-                # Create Redis client from pool
-                self._redis = redis.Redis(connection_pool=pool)
-                
-                # Test connection
-                await self._redis.ping()
-                self._is_healthy = True
-                
-                logger.info("Redis connection established successfully")
-                
-                # Start background health check
-                self._start_health_check()
-                
-            except RedisConnectionError as e:
-                logger.error(f"Failed to connect to Redis: {e}")
-                self._redis = None
-                self._is_healthy = False
-                raise
-            except Exception as e:
-                logger.error(f"Unexpected error connecting to Redis: {e}")
-                self._redis = None
-                self._is_healthy = False
-                raise
+            attempt = 0
+            current_delay = retry_delay
+            
+            while attempt < max_retries:
+                attempt += 1
+                try:
+                    logger.info(f"Connecting to Redis at {settings.REDIS_URL} (attempt {attempt}/{max_retries})")
+                    
+                    # Create connection pool
+                    pool = redis.ConnectionPool.from_url(
+                        settings.REDIS_URL,
+                        max_connections=settings.REDIS_MAX_CONNECTIONS,
+                        decode_responses=True,
+                        socket_keepalive=True,
+                        socket_connect_timeout=5,
+                    )
+                    
+                    # Create Redis client from pool
+                    self._redis = redis.Redis(connection_pool=pool)
+                    
+                    # Test connection
+                    await self._redis.ping()
+                    self._is_healthy = True
+                    
+                    logger.info("Redis connection established successfully")
+                    
+                    # Start background health check
+                    self._start_health_check()
+                    return
+                    
+                except (RedisConnectionError, Exception) as e:
+                    logger.warning(f"Redis connection attempt {attempt} failed: {e}")
+                    self._redis = None
+                    self._is_healthy = False
+                    
+                    if attempt < max_retries:
+                        logger.info(f"Retrying in {current_delay} seconds...")
+                        await asyncio.sleep(current_delay)
+                        current_delay = min(current_delay * 2, 30)  # Exponential backoff, max 30s
+            
+            # All retries exhausted
+            logger.error(f"Failed to connect to Redis after {max_retries} attempts")
+            raise ConnectionError(f"Could not connect to Redis after {max_retries} attempts")
     
     async def disconnect(self) -> None:
         """

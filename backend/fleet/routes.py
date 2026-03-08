@@ -13,7 +13,8 @@ from backend.fleet.models import (
     Drone, DroneCreate, TelemetryFrame,
     Mission, MissionCreate,
     Alert, AlertSeverity,
-    FleetSummary, PaginatedAlerts
+    FleetSummary, PaginatedAlerts,
+    DroneCommand, DroneCommandType
 )
 from backend.fleet.service import fleet_service, get_fleet_service
 from backend.auth.routes import get_current_user, TokenData, UserRole
@@ -130,6 +131,68 @@ async def get_drone_status(
     return {
         "drone": drone,
         "telemetry": telemetry
+    }
+
+
+@router.post("/{drone_id}/command")
+async def send_drone_command(
+    drone_id: UUID,
+    command: DroneCommand,
+    current_user: TokenData = Depends(get_current_user),
+    service = Depends(get_fleet_service)
+):
+    """
+    Send a command to a drone (land, return, emergency stop, etc).
+    
+    Requires admin role.
+    
+    Returns:
+        Command execution result
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required to send commands"
+        )
+    
+    drone = service.get_drone(drone_id)
+    if not drone:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Drone not found"
+        )
+    
+    result = await service.send_command(drone_id, command)
+    return result
+
+
+@router.get("/{drone_id}/telemetry/history")
+async def get_telemetry_history(
+    drone_id: UUID,
+    current_user: TokenData = Depends(get_current_user),
+    service = Depends(get_fleet_service),
+    limit: int = Query(60, ge=1, le=500, description="Number of frames to retrieve")
+):
+    """
+    Get historical telemetry data for a drone.
+    
+    Requires authentication.
+    
+    Returns:
+        List of telemetry frames
+    """
+    drone = service.get_drone(drone_id)
+    if not drone:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Drone not found"
+        )
+    
+    history = service.get_telemetry_history(drone_id, limit)
+    return {
+        "drone_id": drone_id,
+        "count": len(history),
+        "telemetry": history
     }
 
 

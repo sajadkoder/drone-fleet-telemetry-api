@@ -56,6 +56,16 @@ class UserRole(str, Enum):
     VIEWER = "viewer"
 
 
+class DroneCommandType(str, Enum):
+    """Drone command types."""
+    LAND = "land"
+    TAKE_OFF = "take_off"
+    RETURN_TO_BASE = "return_to_base"
+    EMERGENCY_STOP = "emergency_stop"
+    PAUSE = "pause"
+    RESUME = "resume"
+
+
 # ============================================================================
 # Base Models
 # ============================================================================
@@ -125,6 +135,12 @@ class UserLogin(BaseModel):
     """Model for user login."""
     username: str
     password: str
+
+
+class DroneCommand(BaseModel):
+    """Model for sending commands to a drone."""
+    command: DroneCommandType
+    parameters: Optional[dict] = None
 
 
 # ============================================================================

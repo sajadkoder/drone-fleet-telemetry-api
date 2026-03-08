@@ -6,10 +6,16 @@ A production-grade real-time drone fleet monitoring system built with FastAPI, W
 
 - **Real-time Telemetry Streaming**: Live GPS, battery, altitude, speed, and mission status via WebSockets
 - **Fleet Management**: REST API for fleet overview, drone details, and mission control
+- **Drone Commands**: Send commands to drones (land, take_off, return_to_base, emergency_stop, pause, resume)
+- **Telemetry History**: Store and retrieve historical telemetry data for analysis
 - **Anomaly Detection**: Automated alerting for signal loss, low battery, geofence breaches
+- **Health Monitoring**: Detailed system health checks and metrics
 - **JWT Authentication**: Secure API access with token-based auth
 - **Redis Pub/Sub**: Efficient message broadcasting for real-time updates
 - **Docker Deployment**: Full containerized stack with docker-compose
+- **Graceful Error Handling**: Retry logic with exponential backoff for Redis connections
+- **System Metrics**: CPU, memory, and fleet statistics via `/metrics` endpoint
+- **OpenAI Integration**: Optional AI-enhanced alert messages
 
 ## Architecture
 
@@ -30,29 +36,29 @@ A production-grade real-time drone fleet monitoring system built with FastAPI, W
 ## Tech Stack
 
 - **Backend**: FastAPI, Python 3.11+, Pydantic, Redis, JWT
-- **Frontend**: React 18, Vite, TailwindCSS, Recharts, React-Leaflet
-- **Database**: Redis (telemetry storage & pub/sub)
+- **Frontend**: React 18, Vite, TailwindCSS, Recharts, React- **Database**: storage & pub/sub Redis (telemetry-Leaflet
+)
 - **DevOps**: Docker, Docker Compose
 
 ## Quick Start
 
-### Prerequisites
+### 3.11 Prerequisites
 
-- Python 3.11+
+- Python Redis (or Docker+
 - Node.js 18+
-- Redis (or Docker)
+-)
 
 ### Option 1: Local Development
 
 **Backend:**
-```bash
-cd backend
-pip install -r requirements.txt
+ backend
+pip install```bash
+cd -r requirements.txt
 set PYTHONPATH=.
-uvicorn backend.main:app --reload --port 8012
+uvapp --reload --
 ```
 
-**Frontend:**
+**Frontendicorn backend.main:port 8012:**
 ```bash
 cd frontend
 npm install
@@ -76,6 +82,13 @@ Access:
 
 ## API Endpoints
 
+### Health & Monitoring
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Basic health check |
+| GET | `/health/detailed` | Detailed component status |
+| GET | `/metrics` | System metrics (CPU, memory, fleet stats) |
+
 ### Authentication
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -88,6 +101,17 @@ Access:
 | GET | `/fleet` | List all drones |
 | GET | `/fleet/{drone_id}` | Get drone details |
 | GET | `/fleet/summary` | Fleet statistics |
+| POST | `/fleet/{drone_id}/command` | Send command to drone |
+| GET | `/fleet/{drone_id}/telemetry/history` | Get telemetry history |
+
+### Drone Commands
+Send commands to control drones:
+```json
+POST /fleet/{drone_id}/command
+{
+  "command": "land" | "take_off" | "return_to_base" | "emergency_stop" | "pause" | "resume"
+}
+```
 
 ### Missions
 | Method | Endpoint | Description |
@@ -95,11 +119,13 @@ Access:
 | GET | `/missions` | List all missions |
 | POST | `/missions` | Create new mission |
 | GET | `/missions/{id}` | Get mission details |
+| POST | `/missions/{id}/abort` | Abort mission |
 
 ### Alerts
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/alerts` | List all alerts |
+| GET | `/alerts?severity=critical` | Filter by severity |
 | GET | `/alerts/{drone_id}` | Get alerts for drone |
 
 ### WebSocket
@@ -123,6 +149,7 @@ Password: admin123
 | `JWT_SECRET_KEY` | `your-secret-key` | JWT signing key |
 | `DEBUG` | `false` | Debug mode |
 | `SIMULATOR_ENABLED` | `true` | Enable drone simulator |
+| `OPENAI_API_KEY` | - | OpenAI API key for alert enhancement |
 
 ### Frontend
 | Variable | Default | Description |
@@ -137,7 +164,7 @@ drone-fleet-telemetry-api/
 ├── backend/
 │   ├── main.py              # FastAPI app entry point
 │   ├── config.py            # Settings configuration
-│   ├── redis_client.py      # Redis connection
+│   ├── redis_client.py      # Redis connection with retry logic
 │   ├── auth/
 │   │   ├── jwt_handler.py   # JWT token handling
 │   │   └── routes.py        # Auth endpoints
@@ -181,11 +208,19 @@ Each drone streams:
 ## Anomaly Detection
 
 The system monitors for:
-- **Signal Loss**: No telemetry for >5 seconds
-- **Low Battery**: Battery <20%
+- **Signal Loss**: Signal strength <25%
+- **Low Battery Warning**: Battery <25%
 - **Critical Battery**: Battery <10%
-- **High Altitude**: Altitude >150m (configurable)
-- **Geofence Breach**: Leaving designated area
+- **Mission Abort**: When mission is aborted
+- **GPS Deviation**: Unusual movement patterns
+
+## System Metrics
+
+The `/metrics` endpoint returns:
+- Uptime
+- CPU and memory usage
+- Fleet statistics (drones, alerts, missions)
+- WebSocket connection count
 
 ## License
 

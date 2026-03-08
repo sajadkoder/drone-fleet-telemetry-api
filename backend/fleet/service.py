@@ -14,7 +14,7 @@ from backend.fleet.models import (
     Drone, DroneCreate, DroneStatus, TelemetryFrame,
     Mission, MissionCreate, MissionStatus,
     Alert, AlertType, AlertSeverity,
-    FleetSummary
+    FleetSummary, DroneCommand, DroneCommandType
 )
 from backend.telemetry.simulator import simulator
 
@@ -34,6 +34,8 @@ class FleetService:
         self._missions: Dict[UUID, Mission] = {}
         self._alerts: List[Alert] = []
         self._telemetry_cache: Dict[UUID, TelemetryFrame] = {}
+        self._telemetry_history: Dict[UUID, List[TelemetryFrame]] = {}
+        self._max_history_per_drone = 500
     
     async def initialize(self) -> None:
         """Initialize the fleet service with simulated drones."""
@@ -116,6 +118,16 @@ class FleetService:
         """
         self._telemetry_cache[frame.drone_id] = frame
         
+        # Store in history
+        if frame.drone_id not in self._telemetry_history:
+            self._telemetry_history[frame.drone_id] = []
+        
+        self._telemetry_history[frame.drone_id].append(frame)
+        
+        # Keep only last N frames per drone
+        if len(self._telemetry_history[frame.drone_id]) > self._max_history_per_drone:
+            self._telemetry_history[frame.drone_id] = self._telemetry_history[frame.drone_id][-self._max_history_per_drone:]
+        
         # Update drone status from telemetry
         if frame.drone_id in self._drones:
             drone = self._drones[frame.drone_id]
@@ -127,6 +139,20 @@ class FleetService:
                 drone.status = DroneStatus.FLYING
             elif frame.battery_pct <= 0:
                 drone.status = DroneStatus.DOCKED
+    
+    def get_telemetry_history(self, drone_id: UUID, limit: int = 60) -> List[TelemetryFrame]:
+        """
+        Get historical telemetry for a drone.
+        
+        Args:
+            drone_id: Drone identifier
+            limit: Maximum number of frames
+            
+        Returns:
+            List of telemetry frames (newest first)
+        """
+        history = self._telemetry_history.get(drone_id, [])
+        return list(reversed(history[-limit:]))
     
     def create_mission(self, mission_create: MissionCreate) -> Optional[Mission]:
         """
@@ -204,6 +230,79 @@ class FleetService:
         logger.info(f"Aborted mission {mission_id}")
         
         return mission
+    
+    async def send_command(self, drone_id: UUID, command: DroneCommand) -> dict:
+        """
+        Send a command to a drone.
+        
+        Args:
+            drone_id: Drone identifier
+            command: Command to send
+            
+        Returns:
+            Command result
+        """
+        drone = self._drones.get(drone_id)
+        if not drone:
+            return {"success": False, "error": "Drone not found"}
+        
+        sim = simulator.get_drone(drone_id)
+        if not sim:
+            return {"success": False, "error": "Drone simulator not available"}
+        
+        try:
+            if command.command == DroneCommandType.LAND:
+                sim.status = DroneStatus.DOCKED
+                sim.altitude_m = 0.0
+                sim.speed_mps = 0.0
+                sim.mission_status = MissionStatus.IDLE
+                logger.info(f"Drone {drone.name} commanded to LAND")
+                
+            elif command.command == DroneCommandType.TAKE_OFF:
+                if drone.status == DroneStatus.DOCKED:
+                    sim.status = DroneStatus.FLYING
+                    sim.altitude_m = 30.0
+                    sim.mission_status = MissionStatus.EN_ROUTE
+                logger.info(f"Drone {drone.name} commanded to TAKE_OFF")
+                
+            elif command.command == DroneCommandType.RETURN_TO_BASE:
+                sim.mission_status = MissionStatus.RETURNING
+                sim.status = DroneStatus.FLYING
+                logger.info(f"Drone {drone.name} commanded to RETURN_TO_BASE")
+                
+            elif command.command == DroneCommandType.EMERGENCY_STOP:
+                sim.status = DroneStatus.ERROR
+                sim.speed_mps = 0.0
+                sim.altitude_m = 0.0
+                sim.mission_status = MissionStatus.ABORTED
+                # Create emergency alert
+                alert = Alert(
+                    drone_id=drone_id,
+                    type=AlertType.MISSION_ABORT,
+                    severity=AlertSeverity.CRITICAL,
+                    message=f"Emergency stop triggered for {drone.name}"
+                )
+                self.add_alert(alert)
+                logger.warning(f"Drone {drone.name} EMERGENCY_STOP")
+                
+            elif command.command == DroneCommandType.PAUSE:
+                sim.speed_mps = 0.0
+                logger.info(f"Drone {drone.name} commanded to PAUSE")
+                
+            elif command.command == DroneCommandType.RESUME:
+                sim.speed_mps = 8.0
+                logger.info(f"Drone {drone.name} commanded to RESUME")
+            
+            return {
+                "success": True,
+                "command": command.command.value,
+                "drone_id": str(drone_id),
+                "drone_name": drone.name
+            }
+            
+        except Exception as e:
+            logger.error(f"Error sending command {command.command} to drone {drone_id}: {e}")
+            return {"success": False, "error": str(e)}
     
     def add_alert(self, alert: Alert) -> None:
         """
