@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:9001';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:9001';
+const AUTO_CONNECT = import.meta.env.VITE_AUTO_CONNECT !== 'false';
 
-export function useTelemetry() {
+export function useTelemetry(enabled = AUTO_CONNECT) {
   const [drones, setDrones] = useState({});
   const [alerts, setAlerts] = useState([]);
   const [fleetSummary, setFleetSummary] = useState(null);
@@ -128,6 +129,8 @@ export function useTelemetry() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
+    
     connect();
     
     // Fetch initial fleet summary
@@ -145,7 +148,7 @@ export function useTelemetry() {
       }
       clearInterval(interval);
     };
-  }, [connect, fetchFleetSummary]);
+  }, [enabled, connect, fetchFleetSummary]);
 
   const subscribe = useCallback((droneIds) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

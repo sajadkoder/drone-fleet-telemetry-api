@@ -259,7 +259,7 @@ app.include_router(auth_router)
 app.include_router(fleet_router)
 app.include_router(missions_router)
 app.include_router(alerts_router)
-app.include_router(ws_router, prefix="/ws")
+app.include_router(ws_router)
 
 
 # Exception handlers
